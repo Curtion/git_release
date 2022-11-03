@@ -77,7 +77,7 @@ fn git_push_tag(path: &str) {
         .output()
         .expect("执行git push tag失败");
     if output.status.success() {
-        println!("推送tag成功!");
+        // println!("推送tag成功!");
     } else {
         let msg = String::from_utf8(output.stdout).expect("解析日志失败");
         println!("推送tag失败!, {}", msg);
