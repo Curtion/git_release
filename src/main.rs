@@ -141,6 +141,9 @@ fn get_git_tagcommit_latest(tag: &str, path: &str) -> String {
         .output()
         .expect("获取tag对应的commit失败");
     let commit = String::from_utf8(output.stdout).expect("解析日志失败");
+    if commit == "" {
+        return "".to_string();
+    }
     commit.trim()[..7].to_string()
 }
 
