@@ -1,18 +1,22 @@
 use clap::Parser;
-use std::fs;
-use std::io;
 use std::process::Command;
+use std::{env, fs, io};
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
-    #[arg(short, long)]
+    #[arg(short, long, default_value = "")]
     path: String,
 }
 
 fn main() {
     let args = Args::parse();
-    let dirs = fs::read_dir(args.path).expect("读取目录失败");
+    let mut path = args.path;
+    if path == "" {
+        let dir = env::current_dir().expect("获取当前目录失败");
+        path = dir.to_str().unwrap().to_string();
+    }
+    let dirs = fs::read_dir(path).expect("读取目录失败");
     let mut paths: Vec<String> = Vec::new();
     let mut tags: Vec<String> = Vec::new();
     for entry in dirs {
@@ -63,7 +67,6 @@ fn main() {
         git_push_tag(path);
     }
 }
-
 
 fn git_push_tag(path: &str) {
     let output = Command::new("git")
