@@ -89,7 +89,6 @@ fn main() {
 fn git_push_tag(path: &str) {
     let output = Command::new("git")
         .arg("push")
-        .arg("origin")
         .arg("--tags")
         .current_dir(path)
         .output()
