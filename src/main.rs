@@ -9,6 +9,11 @@ struct Args {
     path: String,
 }
 
+struct Repository {
+    paths: Vec<String>,
+    tags: Vec<String>
+}
+
 fn main() {
     let args = Args::parse();
     let mut path = args.path;
@@ -17,8 +22,14 @@ fn main() {
         path = dir.to_str().unwrap().to_string();
     }
     let dirs = fs::read_dir(path).expect("读取目录失败");
-    let mut paths: Vec<String> = Vec::new();
-    let mut tags: Vec<String> = Vec::new();
+    let mut latest = Repository {
+        paths: Vec::new(),
+        tags: Vec::new()
+    };
+    let mut old = Repository {
+        paths: Vec::new(),
+        tags: Vec::new()
+    };
     for entry in dirs {
         if let Ok(entry) = entry {
             let path = entry.path();
@@ -36,15 +47,22 @@ fn main() {
                         println!("最新commit: {}", commit);
                         println!("最新tag对应的commit: {}", tagcommit);
                         println!("---------------------------------------------");
-                        paths.push(path.to_string());
-                        tags.push(tag.to_string());
+                        latest.paths.push(path.to_string());
+                        latest.tags.push(tag.to_string());
+                    } else {
+                        old.paths.push(path.to_string());
+                        old.tags.push(tag.to_string())
                     }
                 }
             }
         }
     }
-    if paths.len() == 0 {
-        println!("没有需要更新的项目!");
+    if latest.paths.len() == 0 {
+        println!("没有需要更新的项目!以下为当前最新tag:");
+        println!("---------------------------------------------");
+        for i in 0..old.paths.len() {
+            println!("{} {}", old.paths[i], old.tags[i]);
+        }
         return;
     }
     let mut input_type = String::new();
@@ -56,8 +74,8 @@ fn main() {
         .read_line(&mut input_type)
         .expect("输入解析错误!");
     let input_type = input_type.trim().parse::<i32>().expect("输入格式错误!");
-    for (index, path) in paths.iter().enumerate() {
-        let last_tag = tags
+    for (index, path) in latest.paths.iter().enumerate() {
+        let last_tag = latest.tags
             .get(index)
             .expect("未知错误")
             .split("V")
@@ -100,6 +118,7 @@ fn create_git_tag(version: &str, path: &str) {
     }
 }
 
+// 创建版本
 fn version_add_one(vtype: i32, version: &str) -> String {
     let version = version.to_string();
     let version = version.split(".");
