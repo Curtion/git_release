@@ -41,7 +41,7 @@ fn main() {
                     let tag = get_git_tag_latest(path);
                     let commit = get_git_commit_latest(path);
                     let tagcommit = get_git_tagcommit_latest(&tag, path);
-                    if tagcommit != commit {
+                    if !tagcommit.starts_with(&commit) {
                         println!("路径: {}", path);
                         println!("最新tag: {}", tag);
                         println!("最新commit: {}", commit);
@@ -162,7 +162,7 @@ fn get_git_tagcommit_latest(tag: &str, path: &str) -> String {
     if commit == "" {
         return "".to_string();
     }
-    commit.trim()[..7].to_string()
+    commit.trim().to_string()
 }
 
 // 获取最新tag
