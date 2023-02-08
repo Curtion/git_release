@@ -1,6 +1,8 @@
 use clap::Parser;
+use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use std::process::Command;
-use std::{env, fs, io};
+use std::time::Duration;
+use std::{env, fs, io, thread};
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -11,7 +13,13 @@ struct Args {
 
 struct Repository {
     paths: Vec<String>,
-    tags: Vec<String>
+    tags: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+struct Deploy {
+    path: String,
+    tag: String,
 }
 
 fn main() {
@@ -24,11 +32,11 @@ fn main() {
     let dirs = fs::read_dir(path).expect("读取目录失败");
     let mut latest = Repository {
         paths: Vec::new(),
-        tags: Vec::new()
+        tags: Vec::new(),
     };
     let mut old = Repository {
         paths: Vec::new(),
-        tags: Vec::new()
+        tags: Vec::new(),
     };
     for entry in dirs {
         if let Ok(entry) = entry {
@@ -74,8 +82,10 @@ fn main() {
         .read_line(&mut input_type)
         .expect("输入解析错误!");
     let input_type = input_type.trim().parse::<i32>().expect("输入格式错误!");
+    let mut deploy_list: Vec<Deploy> = Vec::new();
     for (index, path) in latest.paths.iter().enumerate() {
-        let last_tag = latest.tags
+        let last_tag = latest
+            .tags
             .get(index)
             .expect("未知错误")
             .split("V")
@@ -83,9 +93,58 @@ fn main() {
         let version = version_add_one(input_type, last_tag);
         create_git_tag(&version, path);
         git_push_tag(path);
+        deploy_list.push(Deploy {
+            path: path.to_string(),
+            tag: version.to_string(),
+        });
+    }
+    let mut input_type = String::new();
+    println!("是否启动华为云部署? y/N");
+    io::stdin()
+        .read_line(&mut input_type)
+        .expect("输入解析错误!");
+    let input_type = input_type.trim();
+    if input_type == "y" {
+        deploy_job(deploy_list);
+    } else {
+        println!("已取消华为云部署!");
     }
 }
 
+// 开始部署任务
+fn deploy_job(deploy_list: Vec<Deploy>) {
+    let spinner_style = ProgressStyle::with_template("{prefix:.bold.dim} {spinner} {wide_msg}")
+        .unwrap()
+        .tick_chars("⠁⠂⠄⡀⢀⠠⠐⠈ ");
+    let m = MultiProgress::new();
+    let handles: Vec<_> = deploy_list
+        .into_iter()
+        .map(|item| {
+            let count: u64 = 36000;
+            let pb = m.add(ProgressBar::new(count));
+            pb.set_style(spinner_style.clone());
+            pb.set_prefix(format!("[{}/{}]", item.path, item.tag));
+            thread::spawn(move || {
+                for i in 0..count {
+                    pb.inc(1);
+                    if i % 200 == 0 {
+                        pb.set_message(format!("{}/{}", i, count/200));
+                    }
+                    thread::sleep(Duration::from_millis(50));
+                }
+                pb.finish_with_message("done");
+            })
+        })
+        .collect();
+    for h in handles {
+        let _ = h.join();
+    }
+    m.clear().unwrap();
+}
+
+// 查询华为云所有任务
+
+// 推送tag
 fn git_push_tag(path: &str) {
     let output = Command::new("git")
         .arg("push")
@@ -97,7 +156,7 @@ fn git_push_tag(path: &str) {
         // println!("推送tag成功!");
     } else {
         let msg = String::from_utf8(output.stdout).expect("解析日志失败");
-        println!("推送tag失败!, {}", msg);
+        println!("推送tag失败: {}", msg);
     }
 }
 
