@@ -1,5 +1,8 @@
 use clap::Parser;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
+use microkv::MicroKV;
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::process::Command;
 use std::time::Duration;
 use std::{env, fs, io, thread};
@@ -22,7 +25,100 @@ struct Deploy {
     tag: String,
 }
 
+#[derive(Deserialize, Debug)]
+struct Config {
+    huawei: Huawei,
+    region: Region,
+    url: Url,
+}
+
+#[derive(Deserialize, Debug)]
+struct Huawei {
+    domain: String,
+    name: String,
+    password: String,
+}
+
+#[derive(Deserialize, Debug)]
+struct Region {
+    project_id: String,
+    project_name: String,
+}
+
+#[derive(Deserialize, Debug)]
+struct Url {
+    iam: String,
+    cloudbuild: String,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct GetTOKEN {
+    #[serde(rename = "auth")]
+    auth: Auth,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct Auth {
+    #[serde(rename = "identity")]
+    identity: Identity,
+
+    #[serde(rename = "scope")]
+    scope: Scope,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct Identity {
+    #[serde(rename = "methods")]
+    methods: Vec<String>,
+
+    #[serde(rename = "password")]
+    password: Password,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct Password {
+    #[serde(rename = "user")]
+    user: User,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct User {
+    #[serde(rename = "domain")]
+    domain: Domain,
+
+    #[serde(rename = "name")]
+    name: String,
+
+    #[serde(rename = "password")]
+    password: String,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct Domain {
+    #[serde(rename = "name")]
+    name: String,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct Scope {
+    #[serde(rename = "project")]
+    project: Project,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct Project {
+    #[serde(rename = "id")]
+    id: String,
+
+    #[serde(rename = "name")]
+    name: String,
+}
+
 fn main() {
+    let config = parse_user_toml();
+    let db = init_user_db();
+    get_huawei_token(&db, &config).unwrap();
+    return;
     let args = Args::parse();
     let mut path = args.path;
     if path == "" {
@@ -113,6 +209,7 @@ fn main() {
 
 // 开始部署任务
 fn deploy_job(deploy_list: Vec<Deploy>) {
+    // 判断token是否过期,如果过期则重新登录
     let spinner_style = ProgressStyle::with_template("{prefix:.bold.dim} {spinner} {wide_msg}")
         .unwrap()
         .tick_chars("⠁⠂⠄⡀⢀⠠⠐⠈ ");
@@ -128,7 +225,8 @@ fn deploy_job(deploy_list: Vec<Deploy>) {
                 for i in 0..count {
                     pb.inc(1);
                     if i % 200 == 0 {
-                        pb.set_message(format!("{}/{}", i, count/200));
+                        pb.set_message(format!("{}/{}", i / 200, count / 200));
+                        // 开启部署
                     }
                     thread::sleep(Duration::from_millis(50));
                 }
@@ -142,7 +240,75 @@ fn deploy_job(deploy_list: Vec<Deploy>) {
     m.clear().unwrap();
 }
 
-// 查询华为云所有任务
+// 查询华为云任务列表
+#[tokio::main]
+async fn get_huawei_jobs() -> Result<(), Box<dyn std::error::Error>> {
+    let resp = reqwest::get("https://httpbin.org/ip")
+        .await?
+        .json::<HashMap<String, String>>()
+        .await?;
+    println!("{:#?}", resp);
+    Ok(())
+}
+
+// 获取华为云TOKEN
+#[tokio::main]
+async fn get_huawei_token(db: &MicroKV, config: &Config) -> Result<(), Box<dyn std::error::Error>> {
+    match db.get_unwrap::<String>("token") {
+        Ok(token) => {
+            println!("token存在,开始验证token");
+            println!("{}", token);
+        }
+        Err(_) => {
+            println!("token不存在,开始获取token");
+            let json = GetTOKEN {
+                auth: Auth {
+                    identity: Identity {
+                        methods: vec!["password".to_string()],
+                        password: Password {
+                            user: User {
+                                name: config.huawei.name.clone(),
+                                password: config.huawei.password.clone(),
+                                domain: Domain {
+                                    name: config.huawei.domain.clone(),
+                                },
+                            },
+                        },
+                    },
+                    scope: Scope {
+                        project: Project {
+                            name: config.region.project_name.clone(),
+                            id: config.region.project_id.clone(),
+                        },
+                    },
+                },
+            };
+            let client = reqwest::Client::new();
+            let res = client
+                .post("https://iam.cn-southwest-2.myhuaweicloud.com/v3/auth/tokens")
+                .json(&json)
+                .send()
+                .await?;
+            println!("{:#?}", res.headers());
+        }
+    }
+    Ok(())
+}
+
+// 解析配置文件
+fn parse_user_toml() -> Config {
+    let toml_str = fs::read_to_string("./user.toml").expect("缺少配置文件");
+    let config: Config = toml::from_str(&toml_str).unwrap();
+    return config;
+}
+
+// 初始持久化db
+fn init_user_db() -> MicroKV {
+    let unsafe_pwd: String = String::from("jidian@iot");
+    let mut db = MicroKV::open("user_db").unwrap().with_pwd_clear(unsafe_pwd);
+    db = db.set_auto_commit(true);
+    return db;
+}
 
 // 推送tag
 fn git_push_tag(path: &str) {

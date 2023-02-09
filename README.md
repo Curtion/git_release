@@ -16,7 +16,9 @@
 如果配置了环境变量，可以直接在任意目录执行`git_release.exe`，会自动获取当前目录
 
 # 华为云API调用顺序
-1. ShowJobListByProjectId //查询任务列表
-1. RunJob // 执行任务
-2. ShowJobStatus // 查看任务状态
-3. ShowHistoryDetails // 查看任务结果
+1. KeystoneValidateToken //校验TOKEN是否有效
+2. KeystoneCreateUserTokenByPassword // IAM用户登录获取TOKEN
+3. ShowJobListByProjectId //查询任务列表
+4. RunJob // 执行任务
+5. ShowJobStatus // 查看任务状态
+6. ShowHistoryDetails // 查看任务结果

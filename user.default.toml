@@ -1,0 +1,12 @@
+[huawei]
+domain = "companyname"
+name = "username"
+password = "password"
+
+[region]
+project_id = "28748462f0fb4904a5e03dc2d2f9e1ef"
+project_name = "cn-southwest-2"
+
+[url]
+iam = "https://iam.cn-southwest-2.myhuaweicloud.com"
+cloudbuild = "https://cloudbuild-ext.cn-southwest-2.myhuaweicloud.com"

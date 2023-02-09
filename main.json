@@ -1,0 +1,24 @@
+{
+  "auth": {
+    "identity": {
+      "methods": [
+        "password"
+      ],
+      "password": {
+        "user": {
+          "domain": {
+            "name": "jidianiot"
+          },
+          "name": "xiangkun",
+          "password": "5201314xk"
+        }
+      }
+    },
+    "scope": {
+      "project": {
+        "id": "28748462f0fb4904a5e03dc2d2f9e1ef",
+        "name": "cn-southwest-2"
+      }
+    }
+  }
+}
