@@ -1,8 +1,9 @@
+mod json;
+
 use clap::Parser;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use microkv::MicroKV;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::process::Command;
 use std::time::Duration;
 use std::{env, fs, io, thread};
@@ -25,27 +26,27 @@ struct Deploy {
     tag: String,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Clone)]
 struct Config {
     huawei: Huawei,
     region: Region,
     url: Url,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Clone)]
 struct Huawei {
     domain: String,
     name: String,
     password: String,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Clone)]
 struct Region {
     project_id: String,
     project_name: String,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Clone)]
 struct Url {
     iam: String,
     cloudbuild: String,
@@ -115,10 +116,6 @@ pub struct Project {
 }
 
 fn main() {
-    let config = parse_user_toml();
-    let db = init_user_db();
-    get_huawei_token(&db, &config).unwrap();
-    return;
     let args = Args::parse();
     let mut path = args.path;
     if path == "" {
@@ -207,9 +204,20 @@ fn main() {
     }
 }
 
+fn is_success(job_result: json::JobResult) -> bool {
+    job_result
+        .build_steps
+        .iter()
+        .all(|item| item.status == "success")
+}
+
 // 开始部署任务
 fn deploy_job(deploy_list: Vec<Deploy>) {
-    // 判断token是否过期,如果过期则重新登录
+    let config = parse_user_toml();
+    let db = init_user_db();
+    let token = db.get_unwrap::<String>("token").expect("获取本地token失败");
+    get_huawei_token(&db, &config);
+    let jobs = get_huawei_jobs(&db, &config).unwrap();
     let spinner_style = ProgressStyle::with_template("{prefix:.bold.dim} {spinner} {wide_msg}")
         .unwrap()
         .tick_chars("⠁⠂⠄⡀⢀⠠⠐⠈ ");
@@ -220,17 +228,48 @@ fn deploy_job(deploy_list: Vec<Deploy>) {
             let count: u64 = 36000;
             let pb = m.add(ProgressBar::new(count));
             pb.set_style(spinner_style.clone());
-            pb.set_prefix(format!("[{}/{}]", item.path, item.tag));
+            let job_name = item.path.split("\\").collect::<Vec<&str>>();
+            let job_name = job_name.last().unwrap();
+            let job_id = jobs
+                .jobs
+                .iter()
+                .find(|job| job.job_name == job_name.to_string())
+                .and_then(|job| Some(job.id.clone()));
+            let tag = "V".to_string()+&item.tag;
+            let config = config.clone();
+            let token = token.clone();
+            pb.set_prefix(format!("[{}/{}]", job_name, tag));
             thread::spawn(move || {
+                let job_info = match job_id {
+                    Some(ref job_id) => {
+                        let job_info = huawei_run_job(&token, &config, &job_id, &tag).unwrap(); // 运行任务
+                        let build_number = job_info.actual_build_number; // 获取任务构建number
+                        thread::sleep(Duration::from_millis(2000));
+                        Some((job_id, build_number))
+                    }
+                    None => {
+                        pb.finish_with_message("未找到华为云任务");
+                        return;
+                    }
+                }.unwrap();
+                let job_id = job_info.0;
+                let build_number = job_info.1;
                 for i in 0..count {
                     pb.inc(1);
                     if i % 200 == 0 {
                         pb.set_message(format!("{}/{}", i / 200, count / 200));
-                        // 开启部署
+                        let job_result = huawei_result_job(&token, &config, &job_id, &build_number).unwrap();
+                        let job_result_status = is_success(job_result); // 查看任务结果
+                        if job_result_status {
+                            pb.finish_with_message("success");
+                            return;
+                        } else {
+                            continue;
+                        }
                     }
                     thread::sleep(Duration::from_millis(50));
                 }
-                pb.finish_with_message("done");
+                pb.finish_with_message("Time Out");
             })
         })
         .collect();
@@ -242,57 +281,196 @@ fn deploy_job(deploy_list: Vec<Deploy>) {
 
 // 查询华为云任务列表
 #[tokio::main]
-async fn get_huawei_jobs() -> Result<(), Box<dyn std::error::Error>> {
-    let resp = reqwest::get("https://httpbin.org/ip")
+async fn get_huawei_jobs(
+    db: &MicroKV,
+    config: &Config,
+) -> Result<json::ProjectList, Box<dyn std::error::Error>> {
+    println!("获取华为云任务列表");
+    let client = reqwest::Client::new();
+    let res = client
+        .get(
+            config.url.cloudbuild.clone()
+                + "/v3/ec92bf3022ec42b3b04c30c73d81f23a/jobs?page_index=0&page_size=100",
+        )
+        .header(
+            "X-Auth-Token",
+            db.get_unwrap::<String>("token").expect("获取本地token失败"),
+        )
+        .send()
         .await?
-        .json::<HashMap<String, String>>()
+        .json::<json::ProjectList>()
         .await?;
-    println!("{:#?}", resp);
-    Ok(())
+    Ok(res)
 }
 
 // 获取华为云TOKEN
-#[tokio::main]
-async fn get_huawei_token(db: &MicroKV, config: &Config) -> Result<(), Box<dyn std::error::Error>> {
+fn get_huawei_token(db: &MicroKV, config: &Config) {
     match db.get_unwrap::<String>("token") {
-        Ok(token) => {
-            println!("token存在,开始验证token");
-            println!("{}", token);
+        Ok(_) => {
+            huawei_check_token(db, config).unwrap();
         }
         Err(_) => {
-            println!("token不存在,开始获取token");
-            let json = GetTOKEN {
-                auth: Auth {
-                    identity: Identity {
-                        methods: vec!["password".to_string()],
-                        password: Password {
-                            user: User {
-                                name: config.huawei.name.clone(),
-                                password: config.huawei.password.clone(),
-                                domain: Domain {
-                                    name: config.huawei.domain.clone(),
-                                },
-                            },
-                        },
-                    },
-                    scope: Scope {
-                        project: Project {
-                            name: config.region.project_name.clone(),
-                            id: config.region.project_id.clone(),
+            println!("华为云未登录,开始登录");
+            huawei_login(db, config).unwrap();
+        }
+    }
+}
+
+// 华为云登录
+#[tokio::main]
+async fn huawei_login(db: &MicroKV, config: &Config) -> Result<(), Box<dyn std::error::Error>> {
+    let json = GetTOKEN {
+        auth: Auth {
+            identity: Identity {
+                methods: vec!["password".to_string()],
+                password: Password {
+                    user: User {
+                        name: config.huawei.name.clone(),
+                        password: config.huawei.password.clone(),
+                        domain: Domain {
+                            name: config.huawei.domain.clone(),
                         },
                     },
                 },
-            };
-            let client = reqwest::Client::new();
-            let res = client
-                .post("https://iam.cn-southwest-2.myhuaweicloud.com/v3/auth/tokens")
-                .json(&json)
-                .send()
-                .await?;
-            println!("{:#?}", res.headers());
-        }
-    }
+            },
+            scope: Scope {
+                project: Project {
+                    name: config.region.project_name.clone(),
+                    id: config.region.project_id.clone(),
+                },
+            },
+        },
+    };
+    let client = reqwest::Client::new();
+    let res = client
+        .post(config.url.iam.clone() + "/v3/auth/tokens")
+        .json(&json)
+        .send()
+        .await?;
+    let token = res
+        .headers()
+        .get("x-subject-token")
+        .expect("华为云登录失败")
+        .to_str()
+        .unwrap();
+    db.put("token", &token).expect("缓存token失败");
+    println!("华为云登录成功");
     Ok(())
+}
+
+// 华为云检测token是否过期
+#[tokio::main]
+async fn huawei_check_token(
+    db: &MicroKV,
+    config: &Config,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let client = reqwest::Client::new();
+    let res = client
+        .get(config.url.iam.clone() + "/v3/auth/tokens")
+        .header(
+            "X-Auth-Token",
+            db.get_unwrap::<String>("token").expect("获取本地token失败"),
+        )
+        .header(
+            "X-Subject-Token",
+            db.get_unwrap::<String>("token").expect("获取本地token失败"),
+        )
+        .send()
+        .await?;
+    if res.status() == 200 {
+        Ok(())
+    } else {
+        println!("华为云token过期,重新登录");
+        huawei_login(db, config).unwrap();
+        Ok(())
+    }
+}
+
+// 华为云开始构建任务
+#[tokio::main]
+async fn huawei_run_job(
+    token: &str,
+    config: &Config,
+    jobid: &str,
+    tag: &str,
+) -> Result<json::JobDetail, Box<dyn std::error::Error>> {
+    let json = json::BuildJob {
+        job_id: jobid.to_string(),
+        scm: json::Scm {
+            build_tag: tag.to_string(),
+        },
+    };
+    let client = reqwest::Client::new();
+    let res = client
+        .post(config.url.cloudbuild.clone() + "/v3/jobs/build")
+        .header(
+            "X-Auth-Token",
+            token,
+        )
+        .json(&json)
+        .send()
+        .await?;
+    if res.status() == 200 {
+        let resjson = res.json::<json::JobDetail>().await?;
+        Ok(resjson)
+    } else {
+        Err(res.text().await?.into())
+    }
+}
+
+// let status = huawei_status_job(&token, &config, &job_id).unwrap(); //查看任务是正在运行
+// 华为云查看任务状态
+// #[tokio::main]
+// async fn huawei_status_job(
+//     token: &str,
+//     config: &Config,
+//     jobid: &str,
+// ) -> Result<bool, Box<dyn std::error::Error>> {
+//     let client = reqwest::Client::new();
+//     let res = client
+//         .get(config.url.cloudbuild.clone() + "/v3/jobs/" + jobid + "/status")
+//         .header(
+//             "X-Auth-Token",
+//             token,
+//         )
+//         .send()
+//         .await?;
+//     if res.status() == 200 {
+//         Ok(res.json::<json::JobStatus>().await?.result)
+//     } else {
+//         Err(res.text().await?.into())
+//     }
+// }
+
+// 华为云查看任务结果
+#[tokio::main]
+async fn huawei_result_job(
+    token: &str,
+    config: &Config,
+    job_id: &str,
+    build_number: &str,
+) -> Result<json::JobResult, Box<dyn std::error::Error>> {
+    let client = reqwest::Client::new();
+    let res = client
+        .get(
+            config.url.cloudbuild.clone()
+                + "/v3/jobs/"
+                + job_id
+                + "/"
+                + build_number
+                + "/history-details",
+        )
+        .header(
+            "X-Auth-Token",
+            token,
+        )
+        .send()
+        .await?;
+    if res.status() == 200 {
+        Ok(res.json::<json::JobResult>().await?)
+    } else {
+        Err(res.text().await?.into())
+    }
 }
 
 // 解析配置文件
