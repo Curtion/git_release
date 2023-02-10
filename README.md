@@ -7,7 +7,7 @@
 
 # 使用说明
 
-1. 下载 `bin`目录下的exe文件
+1. 下载 `bin`目录下的exe文件和`user.default.toml`文件
 2. 配置 `环境变量` (可选)
 3. 修改 `user.default.toml`文件名，修改为 `user.toml`
 4. 修改 `user.toml` 文件中`huawei`段的账户信息
