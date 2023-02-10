@@ -204,11 +204,18 @@ fn main() {
     }
 }
 
-fn is_success(job_result: json::JobResult) -> bool {
+fn is_success(job_result: &json::JobResult) -> bool {
     job_result
         .build_steps
         .iter()
         .all(|item| item.status == "success")
+}
+
+fn is_error(job_result: &json::JobResult) -> bool {
+    job_result
+        .build_steps
+        .iter()
+        .any(|item| item.status == "error")
 }
 
 // 开始部署任务
@@ -235,11 +242,12 @@ fn deploy_job(deploy_list: Vec<Deploy>) {
                 .iter()
                 .find(|job| job.job_name == job_name.to_string())
                 .and_then(|job| Some(job.id.clone()));
-            let tag = "V".to_string()+&item.tag;
+            let tag = "V".to_string() + &item.tag;
             let config = config.clone();
             let token = token.clone();
             pb.set_prefix(format!("[{}/{}]", job_name, tag));
-            thread::spawn(move || {
+            let job_name = job_name.to_string().clone();
+            thread::spawn(move || -> Result<(), String> {
                 let job_info = match job_id {
                     Some(ref job_id) => {
                         let job_info = huawei_run_job(&token, &config, &job_id, &tag).unwrap(); // 运行任务
@@ -249,27 +257,42 @@ fn deploy_job(deploy_list: Vec<Deploy>) {
                     }
                     None => {
                         pb.finish_with_message("未找到华为云任务");
-                        return;
+                        return Ok(());
                     }
-                }.unwrap();
+                }
+                .unwrap();
                 let job_id = job_info.0;
                 let build_number = job_info.1;
                 for i in 0..count {
                     pb.inc(1);
                     if i % 200 == 0 {
                         pb.set_message(format!("{}/{}", i / 200, count / 200));
-                        let job_result = huawei_result_job(&token, &config, &job_id, &build_number).unwrap();
-                        let job_result_status = is_success(job_result); // 查看任务结果
-                        if job_result_status {
+                        let job_result =
+                            huawei_result_job(&token, &config, &job_id, &build_number).unwrap();
+                        let is_success = is_success(&job_result);
+                        let is_error = is_error(&job_result);
+                        if is_success {
+                            println!("{job_name} 任务构建成功!");
                             pb.finish_with_message("success");
-                            return;
+                            return Ok(());
                         } else {
+                            if is_error {
+                                pb.finish_with_message("error");
+                                println!("{job_name} 任务构建失败!以下为错误信息:");
+                                for step in job_result.build_steps {
+                                    if step.status == "error" {
+                                        println!("{}: {}", step.name, step.status);
+                                    }
+                                }
+                                return Err(String::from("error"));
+                            }
                             continue;
                         }
                     }
                     thread::sleep(Duration::from_millis(50));
                 }
                 pb.finish_with_message("Time Out");
+                return Err(String::from("Time Out"));
             })
         })
         .collect();
@@ -285,7 +308,6 @@ async fn get_huawei_jobs(
     db: &MicroKV,
     config: &Config,
 ) -> Result<json::ProjectList, Box<dyn std::error::Error>> {
-    println!("获取华为云任务列表");
     let client = reqwest::Client::new();
     let res = client
         .get(
@@ -403,10 +425,7 @@ async fn huawei_run_job(
     let client = reqwest::Client::new();
     let res = client
         .post(config.url.cloudbuild.clone() + "/v3/jobs/build")
-        .header(
-            "X-Auth-Token",
-            token,
-        )
+        .header("X-Auth-Token", token)
         .json(&json)
         .send()
         .await?;
@@ -417,30 +436,6 @@ async fn huawei_run_job(
         Err(res.text().await?.into())
     }
 }
-
-// let status = huawei_status_job(&token, &config, &job_id).unwrap(); //查看任务是正在运行
-// 华为云查看任务状态
-// #[tokio::main]
-// async fn huawei_status_job(
-//     token: &str,
-//     config: &Config,
-//     jobid: &str,
-// ) -> Result<bool, Box<dyn std::error::Error>> {
-//     let client = reqwest::Client::new();
-//     let res = client
-//         .get(config.url.cloudbuild.clone() + "/v3/jobs/" + jobid + "/status")
-//         .header(
-//             "X-Auth-Token",
-//             token,
-//         )
-//         .send()
-//         .await?;
-//     if res.status() == 200 {
-//         Ok(res.json::<json::JobStatus>().await?.result)
-//     } else {
-//         Err(res.text().await?.into())
-//     }
-// }
 
 // 华为云查看任务结果
 #[tokio::main]
@@ -460,10 +455,7 @@ async fn huawei_result_job(
                 + build_number
                 + "/history-details",
         )
-        .header(
-            "X-Auth-Token",
-            token,
-        )
+        .header("X-Auth-Token", token)
         .send()
         .await?;
     if res.status() == 200 {

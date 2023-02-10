@@ -20,5 +20,4 @@
 2. KeystoneCreateUserTokenByPassword // IAM用户登录获取TOKEN
 3. ShowJobListByProjectId //查询任务列表
 4. RunJob // 执行任务
-5. ShowJobStatus // 查看任务状态
 6. ShowHistoryDetails // 查看任务结果
