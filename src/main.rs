@@ -223,8 +223,8 @@ fn is_error(job_result: &json::JobResult) -> bool {
 fn deploy_job(deploy_list: Vec<Deploy>) {
     let config = parse_user_toml();
     let db = init_user_db();
-    let token = db.get_unwrap::<String>("token").expect("获取本地token失败");
     get_huawei_token(&db, &config);
+    let token = db.get_unwrap::<String>("token").expect("获取本地token失败");
     let jobs = get_huawei_jobs(&db, &config).unwrap();
     let spinner_style = ProgressStyle::with_template("{prefix:.bold.dim} {spinner} {wide_msg}")
         .unwrap()
