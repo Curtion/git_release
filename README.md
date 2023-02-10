@@ -9,7 +9,9 @@
 
 1. 下载 `bin`目录下的exe文件
 2. 配置 `环境变量` (可选)
-3. 执行 `git_release.exe`即可。
+3. 修改 `user.default.toml`文件名，修改为 `user.toml`
+4. 修改 `user.toml` 文件中`huawei`段的账户信息
+4. 执行 `git_release.exe`即可
 
 如果没有配置环境变量，需要把exe放置到文件夹内执行，或者通过`--path`指定工作目录
 
