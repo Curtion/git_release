@@ -370,15 +370,19 @@ async fn huawei_login(db: &MicroKV, config: &Config) -> Result<(), Box<dyn std::
         .json(&json)
         .send()
         .await?;
-    let token = res
-        .headers()
-        .get("x-subject-token")
-        .expect("华为云登录失败")
-        .to_str()
-        .unwrap();
-    db.put("token", &token).expect("缓存token失败");
-    println!("华为云登录成功");
-    Ok(())
+    if res.status() == 200 {
+        let token = res
+            .headers()
+            .get("x-subject-token")
+            .expect("华为云登录失败")
+            .to_str()
+            .unwrap();
+        db.put("token", &token).expect("缓存token失败");
+        println!("华为云登录成功");
+        Ok(())
+    } else {
+        Err(res.text().await?.into())
+    }
 }
 
 // 华为云检测token是否过期
@@ -471,8 +475,7 @@ fn parse_user_toml() -> Config {
     let exe_path = env::current_exe().expect("获取当前路径失败");
     let exe_path = exe_path.to_str().unwrap();
     let exe_dir = Path::new(exe_path).parent().unwrap();
-    let toml_str = fs::read_to_string(exe_dir.join("user.toml"))
-        .expect("读取配置文件失败");
+    let toml_str = fs::read_to_string(exe_dir.join("user.toml")).expect("读取配置文件失败");
     let config: Config = toml::from_str(&toml_str).unwrap();
     return config;
 }
