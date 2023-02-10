@@ -253,7 +253,6 @@ fn deploy_job(deploy_list: Vec<Deploy>) {
                     Some(ref job_id) => {
                         let job_info = huawei_run_job(&token, &config, &job_id, &tag).unwrap(); // 运行任务
                         let build_number = job_info.actual_build_number; // 获取任务构建number
-                        thread::sleep(Duration::from_millis(2000));
                         Some((job_id, build_number))
                     }
                     None => {
@@ -264,6 +263,7 @@ fn deploy_job(deploy_list: Vec<Deploy>) {
                 .unwrap();
                 let job_id = job_info.0;
                 let build_number = job_info.1;
+                thread::sleep(Duration::from_millis(5000));
                 for i in 0..count {
                     pb.inc(1);
                     if i % 200 == 0 {
