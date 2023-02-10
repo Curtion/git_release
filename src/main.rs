@@ -4,6 +4,7 @@ use clap::Parser;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use microkv::MicroKV;
 use serde::{Deserialize, Serialize};
+use std::path::Path;
 use std::process::Command;
 use std::time::Duration;
 use std::{env, fs, io, thread};
@@ -467,7 +468,11 @@ async fn huawei_result_job(
 
 // 解析配置文件
 fn parse_user_toml() -> Config {
-    let toml_str = fs::read_to_string("./user.toml").expect("缺少配置文件");
+    let exe_path = env::current_exe().expect("获取当前路径失败");
+    let exe_path = exe_path.to_str().unwrap();
+    let exe_dir = Path::new(exe_path).parent().unwrap();
+    let toml_str = fs::read_to_string(exe_dir.join("user.toml"))
+        .expect("读取配置文件失败");
     let config: Config = toml::from_str(&toml_str).unwrap();
     return config;
 }
