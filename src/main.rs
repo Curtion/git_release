@@ -330,7 +330,15 @@ async fn get_huawei_jobs(
 fn get_huawei_token(db: &MicroKV, config: &Config) {
     match db.get_unwrap::<String>("token") {
         Ok(_) => {
-            huawei_check_token(db, config).unwrap();
+            match huawei_check_token(db, config) {
+                Ok(_) => {
+                    println!("华为云已登录");
+                }
+                Err(_) => {
+                    println!("华为云登录过期,开始登录");
+                    huawei_login(db, config).unwrap();
+                }
+            }
         }
         Err(_) => {
             println!("华为云未登录,开始登录");
@@ -403,9 +411,7 @@ async fn huawei_check_token(
     if res.status() == 200 {
         Ok(())
     } else {
-        println!("华为云token过期,重新登录");
-        huawei_login(db, config).unwrap();
-        Ok(())
+        Err("华为云token过期,重新登录".into())
     }
 }
 
