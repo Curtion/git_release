@@ -5,7 +5,7 @@
 
 在未有新`commit`的情况下程序返回目前最新`tag`。
 
-# 使用说明
+# Windows使用说明
 
 1. 下载 `bin`目录下的exe文件和`user.default.toml`文件
 2. 配置 `环境变量` (可选)
@@ -16,6 +16,10 @@
 如果没有配置环境变量，需要把exe放置到文件夹内执行，或者通过`--path`指定工作目录
 
 如果配置了环境变量，可以直接在任意目录执行`git_release.exe`，会自动获取当前目录
+
+# MacOS使用说明
+
+类似Windows使用说明
 
 # 华为云API调用顺序
 1. KeystoneValidateToken //校验TOKEN是否有效
