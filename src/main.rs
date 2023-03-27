@@ -236,8 +236,7 @@ fn deploy_job(deploy_list: Vec<Deploy>) {
             let count: u64 = 36000;
             let pb = m.add(ProgressBar::new(count));
             pb.set_style(spinner_style.clone());
-            let job_name = item.path.split("\\").collect::<Vec<&str>>();
-            let job_name = job_name.last().unwrap();
+            let job_name =  Path::new(&item.path).file_name().unwrap().to_str().unwrap();
             let job_id = jobs
                 .jobs
                 .iter()
@@ -329,17 +328,15 @@ async fn get_huawei_jobs(
 // 获取华为云TOKEN
 fn get_huawei_token(db: &MicroKV, config: &Config) {
     match db.get_unwrap::<String>("token") {
-        Ok(_) => {
-            match huawei_check_token(db, config) {
-                Ok(_) => {
-                    println!("华为云已登录");
-                }
-                Err(_) => {
-                    println!("华为云登录过期,开始登录");
-                    huawei_login(db, config).unwrap();
-                }
+        Ok(_) => match huawei_check_token(db, config) {
+            Ok(_) => {
+                println!("华为云已登录");
             }
-        }
+            Err(_) => {
+                println!("华为云登录过期,开始登录");
+                huawei_login(db, config).unwrap();
+            }
+        },
         Err(_) => {
             println!("华为云未登录,开始登录");
             huawei_login(db, config).unwrap();
@@ -477,8 +474,7 @@ fn parse_user_toml() -> Config {
     let exe_path = env::current_exe().expect("获取当前路径失败");
     let exe_path = exe_path.to_str().unwrap();
     let exe_dir = Path::new(exe_path).parent().unwrap();
-    let toml_str = fs::read_to_string(exe_dir.join("user.toml"))
-        .expect("读取配置文件失败");
+    let toml_str = fs::read_to_string(exe_dir.join("user.toml")).expect("读取配置文件失败");
     let config: Config = toml::from_str(&toml_str).unwrap();
     return config;
 }
