@@ -172,10 +172,14 @@ fn main() {
     println!("1. 大版本");
     println!("2. 小版本");
     println!("3. 修复版本");
+    println!("4. 退出");
     io::stdin()
         .read_line(&mut input_type)
         .expect("输入解析错误!");
     let input_type = input_type.trim().parse::<i32>().expect("输入格式错误!");
+    if input_type == 4 {
+        return;
+    }
     let mut deploy_list: Vec<Deploy> = Vec::new();
     for (index, path) in latest.paths.iter().enumerate() {
         let last_tag = latest
