@@ -509,9 +509,11 @@ fn git_push_tag(path: &str) {
 
 // 创建tag
 fn create_git_tag(version: &str, path: &str) {
+    let commit = get_git_commit_latest(path);
     let output = Command::new("git")
         .arg("tag")
         .arg(format!("V{}", version))
+        .arg(commit)
         .current_dir(path)
         .output()
         .expect("创建tag失败");
@@ -577,6 +579,7 @@ fn get_git_tag_latest(path: &str) -> String {
         .arg("describe")
         .arg("--tags")
         .arg("--abbrev=0")
+        .arg("master")
         .current_dir(path)
         .output()
         .expect("执行 git describe 失败");
@@ -593,7 +596,7 @@ fn get_git_commit_latest(path: &str) -> String {
     let output = Command::new("git")
         .arg("rev-parse")
         .arg("--short")
-        .arg("HEAD")
+        .arg("master")
         .current_dir(path)
         .output()
         .expect("执行 git rev-parse 失败");
