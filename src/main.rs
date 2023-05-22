@@ -3,132 +3,24 @@ mod json;
 use clap::Parser;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use microkv::MicroKV;
-use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::process::Command;
 use std::time::Duration;
 use std::{env, fs, io, thread};
 
-#[derive(Parser, Debug)]
-#[command(author, version, about, long_about = None)]
-struct Args {
-    #[arg(short, long, default_value = "")]
-    path: String,
-}
-
-struct Repository {
-    paths: Vec<String>,
-    tags: Vec<String>,
-}
-
-#[derive(Debug, Clone)]
-struct Deploy {
-    path: String,
-    tag: String,
-}
-
-#[derive(Deserialize, Debug, Clone)]
-struct Config {
-    huawei: Huawei,
-    region: Region,
-    url: Url,
-}
-
-#[derive(Deserialize, Debug, Clone)]
-struct Huawei {
-    domain: String,
-    name: String,
-    password: String,
-}
-
-#[derive(Deserialize, Debug, Clone)]
-struct Region {
-    project_id: String,
-    project_name: String,
-}
-
-#[derive(Deserialize, Debug, Clone)]
-struct Url {
-    iam: String,
-    cloudbuild: String,
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct GetTOKEN {
-    #[serde(rename = "auth")]
-    auth: Auth,
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct Auth {
-    #[serde(rename = "identity")]
-    identity: Identity,
-
-    #[serde(rename = "scope")]
-    scope: Scope,
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct Identity {
-    #[serde(rename = "methods")]
-    methods: Vec<String>,
-
-    #[serde(rename = "password")]
-    password: Password,
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct Password {
-    #[serde(rename = "user")]
-    user: User,
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct User {
-    #[serde(rename = "domain")]
-    domain: Domain,
-
-    #[serde(rename = "name")]
-    name: String,
-
-    #[serde(rename = "password")]
-    password: String,
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct Domain {
-    #[serde(rename = "name")]
-    name: String,
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct Scope {
-    #[serde(rename = "project")]
-    project: Project,
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct Project {
-    #[serde(rename = "id")]
-    id: String,
-
-    #[serde(rename = "name")]
-    name: String,
-}
-
 fn main() {
-    let args = Args::parse();
+    let args = json::Args::parse();
     let mut path = args.path;
     if path == "" {
         let dir = env::current_dir().expect("获取当前目录失败");
         path = dir.to_str().unwrap().to_string();
     }
     let dirs = fs::read_dir(path).expect("读取目录失败");
-    let mut latest = Repository {
+    let mut latest = json::Repository {
         paths: Vec::new(),
         tags: Vec::new(),
     };
-    let mut old = Repository {
+    let mut old = json::Repository {
         paths: Vec::new(),
         tags: Vec::new(),
     };
@@ -141,7 +33,7 @@ fn main() {
                 let is_git = is_git_repository(path);
                 if is_git == "true" {
                     let tag = get_git_tag_latest(path);
-                    let commit = get_git_commit_latest(path);
+                    let commit: String = get_git_commit_latest(path);
                     let tagcommit = get_git_tagcommit_latest(&tag, path);
                     if !tagcommit.starts_with(&commit) {
                         println!("路径: {}", path);
@@ -177,10 +69,10 @@ fn main() {
         .read_line(&mut input_type)
         .expect("输入解析错误!");
     let input_type = input_type.trim().parse::<i32>().expect("输入格式错误!");
-    if input_type == 4 {
+    if input_type != 1 && input_type != 2 && input_type != 3 {
         return;
     }
-    let mut deploy_list: Vec<Deploy> = Vec::new();
+    let mut deploy_list: Vec<json::Deploy> = Vec::new();
     for (index, path) in latest.paths.iter().enumerate() {
         let last_tag = latest
             .tags
@@ -191,7 +83,7 @@ fn main() {
         let version = version_add_one(input_type, last_tag);
         create_git_tag(&version, path);
         git_push_tag(path);
-        deploy_list.push(Deploy {
+        deploy_list.push(json::Deploy {
             path: path.to_string(),
             tag: version.to_string(),
         });
@@ -224,7 +116,7 @@ fn is_error(job_result: &json::JobResult) -> bool {
 }
 
 // 开始部署任务
-fn deploy_job(deploy_list: Vec<Deploy>) {
+fn deploy_job(deploy_list: Vec<json::Deploy>) {
     let config = parse_user_toml();
     let db = init_user_db();
     get_huawei_token(&db, &config);
@@ -310,7 +202,7 @@ fn deploy_job(deploy_list: Vec<Deploy>) {
 #[tokio::main]
 async fn get_huawei_jobs(
     db: &MicroKV,
-    config: &Config,
+    config: &json::Config,
 ) -> Result<json::ProjectList, Box<dyn std::error::Error>> {
     let client = reqwest::Client::new();
     let res = client
@@ -330,7 +222,7 @@ async fn get_huawei_jobs(
 }
 
 // 获取华为云TOKEN
-fn get_huawei_token(db: &MicroKV, config: &Config) {
+fn get_huawei_token(db: &MicroKV, config: &json::Config) {
     match db.get_unwrap::<String>("token") {
         Ok(_) => match huawei_check_token(db, config) {
             Ok(_) => {
@@ -350,23 +242,23 @@ fn get_huawei_token(db: &MicroKV, config: &Config) {
 
 // 华为云登录
 #[tokio::main]
-async fn huawei_login(db: &MicroKV, config: &Config) -> Result<(), Box<dyn std::error::Error>> {
-    let json = GetTOKEN {
-        auth: Auth {
-            identity: Identity {
+async fn huawei_login(db: &MicroKV, config: &json::Config) -> Result<(), Box<dyn std::error::Error>> {
+    let json = json::GetTOKEN {
+        auth: json::Auth {
+            identity: json::Identity {
                 methods: vec!["password".to_string()],
-                password: Password {
-                    user: User {
+                password: json::Password {
+                    user: json::User {
                         name: config.huawei.name.clone(),
                         password: config.huawei.password.clone(),
-                        domain: Domain {
+                        domain: json::Domain {
                             name: config.huawei.domain.clone(),
                         },
                     },
                 },
             },
-            scope: Scope {
-                project: Project {
+            scope: json::Scope {
+                project: json::Project {
                     name: config.region.project_name.clone(),
                     id: config.region.project_id.clone(),
                 },
@@ -394,7 +286,7 @@ async fn huawei_login(db: &MicroKV, config: &Config) -> Result<(), Box<dyn std::
 #[tokio::main]
 async fn huawei_check_token(
     db: &MicroKV,
-    config: &Config,
+    config: &json::Config,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let client = reqwest::Client::new();
     let res = client
@@ -420,7 +312,7 @@ async fn huawei_check_token(
 #[tokio::main]
 async fn huawei_run_job(
     token: &str,
-    config: &Config,
+    config: &json::Config,
     jobid: &str,
     tag: &str,
 ) -> Result<json::JobDetail, Box<dyn std::error::Error>> {
@@ -449,7 +341,7 @@ async fn huawei_run_job(
 #[tokio::main]
 async fn huawei_result_job(
     token: &str,
-    config: &Config,
+    config: &json::Config,
     job_id: &str,
     build_number: &str,
 ) -> Result<json::JobResult, Box<dyn std::error::Error>> {
@@ -474,12 +366,12 @@ async fn huawei_result_job(
 }
 
 // 解析配置文件
-fn parse_user_toml() -> Config {
+fn parse_user_toml() -> json::Config {
     let exe_path = env::current_exe().expect("获取当前路径失败");
     let exe_path = exe_path.to_str().unwrap();
     let exe_dir = Path::new(exe_path).parent().unwrap();
     let toml_str = fs::read_to_string(exe_dir.join("user.toml")).expect("读取配置文件失败");
-    let config: Config = toml::from_str(&toml_str).unwrap();
+    let config: json::Config = toml::from_str(&toml_str).unwrap();
     return config;
 }
 
