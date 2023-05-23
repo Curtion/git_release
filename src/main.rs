@@ -1,4 +1,5 @@
 mod json;
+mod model;
 
 use clap::Parser;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
@@ -101,14 +102,14 @@ fn main() {
     }
 }
 
-fn is_success(job_result: &json::JobResult) -> bool {
+fn is_success(job_result: &model::JobResult) -> bool {
     job_result
         .build_steps
         .iter()
         .all(|item| item.status == "success")
 }
 
-fn is_error(job_result: &json::JobResult) -> bool {
+fn is_error(job_result: &model::JobResult) -> bool {
     job_result
         .build_steps
         .iter()
@@ -203,7 +204,7 @@ fn deploy_job(deploy_list: Vec<json::Deploy>) {
 async fn get_huawei_jobs(
     db: &MicroKV,
     config: &json::Config,
-) -> Result<json::ProjectList, Box<dyn std::error::Error>> {
+) -> Result<model::ProjectList, Box<dyn std::error::Error>> {
     let client = reqwest::Client::new();
     let res = client
         .get(
@@ -216,7 +217,7 @@ async fn get_huawei_jobs(
         )
         .send()
         .await?
-        .json::<json::ProjectList>()
+        .json::<model::ProjectList>()
         .await?;
     Ok(res)
 }
@@ -315,10 +316,10 @@ async fn huawei_run_job(
     config: &json::Config,
     jobid: &str,
     tag: &str,
-) -> Result<json::JobDetail, Box<dyn std::error::Error>> {
-    let json = json::BuildJob {
+) -> Result<model::JobDetail, Box<dyn std::error::Error>> {
+    let json = model::BuildJob {
         job_id: jobid.to_string(),
-        scm: json::Scm {
+        scm: model::Scm {
             build_tag: tag.to_string(),
         },
     };
@@ -330,7 +331,7 @@ async fn huawei_run_job(
         .send()
         .await?;
     if res.status() == 200 {
-        let resjson = res.json::<json::JobDetail>().await?;
+        let resjson = res.json::<model::JobDetail>().await?;
         Ok(resjson)
     } else {
         Err(res.text().await?.into())
@@ -344,7 +345,7 @@ async fn huawei_result_job(
     config: &json::Config,
     job_id: &str,
     build_number: &str,
-) -> Result<json::JobResult, Box<dyn std::error::Error>> {
+) -> Result<model::JobResult, Box<dyn std::error::Error>> {
     let client = reqwest::Client::new();
     let res = client
         .get(
@@ -359,7 +360,7 @@ async fn huawei_result_job(
         .send()
         .await?;
     if res.status() == 200 {
-        Ok(res.json::<json::JobResult>().await?)
+        Ok(res.json::<model::JobResult>().await?)
     } else {
         Err(res.text().await?.into())
     }
