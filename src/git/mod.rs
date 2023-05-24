@@ -8,10 +8,8 @@ pub fn git_push_tag(path: &str) {
         .current_dir(path)
         .output()
         .expect("执行git push tag失败");
-    if output.status.success() {
-        // println!("推送tag成功!");
-    } else {
-        let msg = String::from_utf8(output.stdout).expect("解析日志失败");
+    if !output.status.success() {
+        let msg = String::from_utf8(output.stderr).unwrap_or("None未知错误".to_string());
         println!("推送tag失败: {}", msg);
     }
 }
@@ -29,7 +27,7 @@ pub fn create_git_tag(version: &str, path: &str) {
     if output.status.success() {
         println!("{}  V{}", path, version);
     } else {
-        let msg = String::from_utf8(output.stdout).expect("解析日志失败");
+        let msg = String::from_utf8(output.stderr).unwrap_or("None未知错误".to_string());
         println!("创建tag失败!, {}", msg);
     }
 }

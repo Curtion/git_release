@@ -2,6 +2,7 @@ use crate::{json, model};
 
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use microkv::MicroKV;
+use std::error::Error;
 use std::path::Path;
 use std::time::Duration;
 use std::{env, fs, thread};
@@ -9,6 +10,11 @@ use std::{env, fs, thread};
 // 开始部署任务
 pub fn deploy_job(deploy_list: Vec<json::Deploy>) {
     let config = parse_user_toml();
+    if let Err(error) = config {
+        println!("{error}");
+        return;
+    }
+    let config = config.unwrap();
     let db = init_user_db();
     get_huawei_token(&db, &config);
     let token = db.get_unwrap::<String>("token").expect("获取本地token失败");
@@ -90,13 +96,22 @@ pub fn deploy_job(deploy_list: Vec<json::Deploy>) {
 }
 
 // 解析配置文件
-fn parse_user_toml() -> json::Config {
+fn parse_user_toml() -> Result<json::Config, Box<dyn Error>> {
     let exe_path = env::current_exe().expect("获取当前路径失败");
     let exe_path = exe_path.to_str().unwrap();
     let exe_dir = Path::new(exe_path).parent().unwrap();
-    let toml_str = fs::read_to_string(exe_dir.join("user.toml")).expect("读取配置文件失败");
+    let toml_str = fs::read_to_string(exe_dir.join("user.toml"));
+    let toml_str = match toml_str {
+        Ok(toml_str) => toml_str,
+        Err(_) => {
+            return Err(Box::new(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "程序运行目录未找到配置文件user.toml",
+            )))
+        }
+    };
     let config: json::Config = toml::from_str(&toml_str).unwrap();
-    return config;
+    return Ok(config);
 }
 
 // 初始持久化db
