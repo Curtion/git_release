@@ -8,7 +8,8 @@ use std::time::Duration;
 use std::{env, fs, thread};
 
 // 开始部署任务
-pub fn deploy_job(deploy_list: Vec<json::Deploy>) {
+#[tokio::main]
+pub async fn deploy_job(deploy_list: Vec<json::Deploy>) {
     let config = parse_user_toml();
     if let Err(error) = config {
         println!("{error}");
@@ -16,9 +17,10 @@ pub fn deploy_job(deploy_list: Vec<json::Deploy>) {
     }
     let config = config.unwrap();
     let db = init_user_db();
-    get_huawei_token(&db, &config);
-    let token = db.get_unwrap::<String>("token").expect("获取本地token失败");
-    let jobs = get_huawei_jobs(&db, &config).unwrap();
+    let db1 = db.clone();
+    get_huawei_token(&db1, &config).await;
+    let token = db.get_unwrap::<String>("token").unwrap();
+    let jobs = get_huawei_jobs(&db, &config).await.unwrap();
     let spinner_style = ProgressStyle::with_template("{prefix:.bold.dim} {spinner} {wide_msg}")
         .unwrap()
         .tick_chars("⠁⠂⠄⡀⢀⠠⠐⠈ ");
@@ -39,11 +41,13 @@ pub fn deploy_job(deploy_list: Vec<json::Deploy>) {
             let config = config.clone();
             let token = token.clone();
             pb.set_prefix(format!("[{}/{}]", job_name, tag));
-            let job_name = job_name.to_string().clone();
-            thread::spawn(move || -> Result<(), String> {
+            let job_name: String = job_name.to_string().clone();
+            tokio::spawn(async move {
                 let job_info = match job_id {
                     Some(ref job_id) => {
-                        let job_info = huawei_run_job(&token, &config, &job_id, &tag).unwrap(); // 运行任务
+                        let job_info = huawei_run_job(&token, &config, &job_id, &tag)
+                            .await
+                            .unwrap(); // 运行任务
                         let build_number = job_info.actual_build_number; // 获取任务构建number
                         Some((job_id, build_number))
                     }
@@ -55,13 +59,14 @@ pub fn deploy_job(deploy_list: Vec<json::Deploy>) {
                 .unwrap();
                 let job_id = job_info.0;
                 let build_number = job_info.1;
-                thread::sleep(Duration::from_millis(5000));
+                tokio::time::sleep(Duration::from_millis(5000)).await;
                 for i in 0..count {
                     pb.inc(1);
                     if i % 200 == 0 {
                         pb.set_message(format!("{}/{}", i / 200, count / 200));
-                        let job_result =
-                            huawei_result_job(&token, &config, &job_id, &build_number).unwrap();
+                        let job_result = huawei_result_job(&token, &config, &job_id, &build_number)
+                            .await
+                            .unwrap();
                         let is_success = is_success(&job_result);
                         let is_error = is_error(&job_result);
                         if is_success {
@@ -90,7 +95,10 @@ pub fn deploy_job(deploy_list: Vec<json::Deploy>) {
         })
         .collect();
     for h in handles {
-        let _ = h.join();
+        let res = h.await;
+        if let Err(error) = res {
+            println!("{error}");
+        }
     }
     m.clear().unwrap();
 }
@@ -123,7 +131,6 @@ fn init_user_db() -> MicroKV {
 }
 
 // 查询华为云任务列表
-#[tokio::main]
 async fn get_huawei_jobs(
     db: &MicroKV,
     config: &json::Config,
@@ -146,30 +153,26 @@ async fn get_huawei_jobs(
 }
 
 // 获取华为云TOKEN
-fn get_huawei_token(db: &MicroKV, config: &json::Config) {
+async fn get_huawei_token(db: &MicroKV, config: &json::Config) {
     match db.get_unwrap::<String>("token") {
-        Ok(_) => match huawei_check_token(db, config) {
+        Ok(_) => match huawei_check_token(db, config).await {
             Ok(_) => {
                 println!("华为云已登录");
             }
             Err(_) => {
                 println!("华为云登录过期,开始登录");
-                huawei_login(db, config).unwrap();
+                huawei_login(db, config).await.unwrap();
             }
         },
         Err(_) => {
             println!("华为云未登录,开始登录");
-            huawei_login(db, config).unwrap();
+            huawei_login(db, config).await.unwrap();
         }
     }
 }
 
 // 华为云登录
-#[tokio::main]
-async fn huawei_login(
-    db: &MicroKV,
-    config: &json::Config,
-) -> Result<(), Box<dyn std::error::Error>> {
+async fn huawei_login(db: &MicroKV, config: &json::Config) -> Result<(), Box<dyn Error>> {
     let json = json::GetTOKEN {
         auth: json::Auth {
             identity: json::Identity {
@@ -210,11 +213,7 @@ async fn huawei_login(
 }
 
 // 华为云检测token是否过期
-#[tokio::main]
-async fn huawei_check_token(
-    db: &MicroKV,
-    config: &json::Config,
-) -> Result<(), Box<dyn std::error::Error>> {
+async fn huawei_check_token(db: &MicroKV, config: &json::Config) -> Result<(), Box<dyn Error>> {
     let client = reqwest::Client::new();
     let res = client
         .get(config.url.iam.clone() + "/v3/auth/tokens")
@@ -236,13 +235,12 @@ async fn huawei_check_token(
 }
 
 // 华为云开始构建任务
-#[tokio::main]
 async fn huawei_run_job(
     token: &str,
     config: &json::Config,
     jobid: &str,
     tag: &str,
-) -> Result<model::JobDetail, Box<dyn std::error::Error>> {
+) -> Result<model::JobDetail, Box<dyn Error>> {
     let json = model::BuildJob {
         job_id: jobid.to_string(),
         scm: model::Scm {
@@ -265,13 +263,12 @@ async fn huawei_run_job(
 }
 
 // 华为云查看任务结果
-#[tokio::main]
 async fn huawei_result_job(
     token: &str,
     config: &json::Config,
     job_id: &str,
     build_number: &str,
-) -> Result<model::JobResult, Box<dyn std::error::Error>> {
+) -> Result<model::JobResult, Box<dyn Error>> {
     let client = reqwest::Client::new();
     let res = client
         .get(
