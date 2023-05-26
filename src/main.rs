@@ -2,6 +2,7 @@ mod git;
 mod huawei;
 mod json;
 mod model;
+mod select;
 
 use clap::Parser;
 use std::{cmp::Ordering, env, fs, io};
@@ -54,9 +55,21 @@ fn main() {
     if latest.paths.len() == 0 {
         println!("没有需要更新的项目!以下为当前最新tag:");
         println!("---------------------------------------------");
+        let mut options:Vec<String> = Vec::new();
         for i in 0..old.paths.len() {
             println!("{} {}", old.paths[i], old.tags[i]);
+            options.push(format!("{} {}", old.paths[i], old.tags[i]));
         }
+        let res = select::select_multiple(options);
+        let mut deploy_list: Vec<json::Deploy> = Vec::new();
+        for i in res {
+            let tag = old.tags[i].split("V").collect::<Vec<&str>>()[1].to_string();
+            deploy_list.push(json::Deploy {
+                path: old.paths[i].clone(),
+                tag,
+            });
+        }
+        huawei::deploy_job(deploy_list.clone());
         return;
     }
     let mut input_type: i32;
