@@ -1,16 +1,29 @@
 use crossterm::cursor::MoveTo;
-use crossterm::event::{read, Event, KeyEvent, KeyCode};
-use crossterm::style::{SetForegroundColor, Color, ResetColor, Print};
+use crossterm::event::{read, Event, KeyCode, KeyEvent};
+use crossterm::style::{Color, Print, ResetColor, SetForegroundColor};
+#[allow(unused_imports)]
+use crossterm::terminal::enable_raw_mode;
 use crossterm::{execute, terminal};
 use std::io::stdout;
-
 pub fn select_multiple(options: Vec<String>) -> Vec<usize> {
-    execute!(stdout(), terminal::Clear(terminal::ClearType::All), MoveTo(0, 0)).unwrap();
+    execute!(
+        stdout(),
+        terminal::Clear(terminal::ClearType::All),
+        MoveTo(0, 0)
+    )
+    .unwrap();
+    #[cfg(windows)]
+    {
+        enable_raw_mode().unwrap();
+    }
     let mut cursor_position = 0;
     let mut selected_indices = Vec::new();
 
     loop {
-        let _ = read();
+        #[cfg(windows)]
+        {
+            let _ = read();
+        }
         println!("当前没有需要更新的项目，请使用上下键选择、空格键选中、回车键确认部署:");
         println!("---------------------------------------------------------------------");
         for (index, option) in options.iter().enumerate() {
@@ -21,20 +34,32 @@ pub fn select_multiple(options: Vec<String>) -> Vec<usize> {
             };
             // 高亮当前行，换行显示
             if index == cursor_position {
-                execute!(stdout(), SetForegroundColor(Color::Red), Print(format!("{} {}", prefix, option)), ResetColor, Print("\n")).unwrap();
+                execute!(
+                    stdout(),
+                    SetForegroundColor(Color::Red),
+                    Print(format!("{} {}", prefix, option)),
+                    ResetColor,
+                    Print("\n")
+                )
+                .unwrap();
             } else {
-                execute!(stdout(), Print(format!("{} {}", prefix, option)), Print("\n")).unwrap();
+                execute!(
+                    stdout(),
+                    Print(format!("{} {}", prefix, option)),
+                    Print("\n")
+                )
+                .unwrap();
             }
         }
-        
+
         if let Ok(Event::Key(KeyEvent { code, .. })) = read() {
             match code {
-                KeyCode::Up => {
+                KeyCode::Up | KeyCode::Char('W') => {
                     if cursor_position > 0 {
                         cursor_position -= 1;
                     }
                 }
-                KeyCode::Down => {
+                KeyCode::Down | KeyCode::Char('S') => {
                     if cursor_position < options.len() - 1 {
                         cursor_position += 1;
                     }
@@ -52,7 +77,12 @@ pub fn select_multiple(options: Vec<String>) -> Vec<usize> {
                 _ => {}
             }
 
-            execute!(stdout(), terminal::Clear(terminal::ClearType::All), MoveTo(0, 0)).unwrap();
+            execute!(
+                stdout(),
+                terminal::Clear(terminal::ClearType::All),
+                MoveTo(0, 0)
+            )
+            .unwrap();
         }
     }
 }
