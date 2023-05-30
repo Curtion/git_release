@@ -1,7 +1,7 @@
 use crossterm::cursor::MoveTo;
 use crossterm::event::{read, Event, KeyCode, KeyEvent};
 use crossterm::style::{Color, Print, ResetColor, SetForegroundColor};
-#[allow(unused_imports)]
+#[cfg_attr(debug_assertions, allow(unused_imports))]
 use crossterm::terminal::enable_raw_mode;
 use crossterm::{execute, terminal};
 use std::io::stdout;
@@ -12,7 +12,7 @@ pub fn select_multiple(options: Vec<String>) -> Vec<usize> {
         MoveTo(0, 0)
     )
     .unwrap();
-    #[cfg(windows)]
+    #[cfg(unix)]
     {
         enable_raw_mode().unwrap();
     }
@@ -24,8 +24,16 @@ pub fn select_multiple(options: Vec<String>) -> Vec<usize> {
         {
             let _ = read();
         }
-        println!("当前没有需要更新的项目，请使用上下键选择、空格键选中、回车键确认部署:");
-        println!("---------------------------------------------------------------------");
+        #[cfg(unix)]
+        {
+            println!("当前没有需要更新的项目，请使用上下键选择、空格键选中、回车键确认部署:\r\n");
+            println!("---------------------------------------------------------------------\r\n");
+        }
+        #[cfg(windows)]
+        {
+            println!("当前没有需要更新的项目，请使用上下键选择、空格键选中、回车键确认部署:");
+            println!("---------------------------------------------------------------------");
+        }
         for (index, option) in options.iter().enumerate() {
             let prefix = if selected_indices.contains(&index) {
                 "[*]"
@@ -39,14 +47,14 @@ pub fn select_multiple(options: Vec<String>) -> Vec<usize> {
                     SetForegroundColor(Color::Red),
                     Print(format!("{} {}", prefix, option)),
                     ResetColor,
-                    Print("\n")
+                    Print("\r\n")
                 )
                 .unwrap();
             } else {
                 execute!(
                     stdout(),
                     Print(format!("{} {}", prefix, option)),
-                    Print("\n")
+                    Print("\r\n")
                 )
                 .unwrap();
             }
