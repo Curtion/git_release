@@ -1,5 +1,5 @@
 use crossterm::cursor::MoveTo;
-use crossterm::event::{read, Event, KeyCode, KeyEvent};
+use crossterm::event::{read, Event, KeyCode, KeyEvent, KeyModifiers};
 use crossterm::style::{Color, Print, ResetColor, SetForegroundColor};
 #[cfg_attr(debug_assertions, allow(unused_imports))]
 use crossterm::terminal::enable_raw_mode;
@@ -26,8 +26,8 @@ pub fn select_multiple(options: Vec<String>) -> Vec<usize> {
         }
         #[cfg(unix)]
         {
-            println!("当前没有需要更新的项目，请使用上下键选择、空格键选中、回车键确认部署:\r\n");
-            println!("---------------------------------------------------------------------\r\n");
+            println!("当前没有需要更新的项目，请使用上下键选择、空格键选中、回车键确认部署:\r");
+            println!("---------------------------------------------------------------------\r");
         }
         #[cfg(windows)]
         {
@@ -60,27 +60,36 @@ pub fn select_multiple(options: Vec<String>) -> Vec<usize> {
             }
         }
 
-        if let Ok(Event::Key(KeyEvent { code, .. })) = read() {
-            match code {
-                KeyCode::Up | KeyCode::Char('W') => {
+        if let Ok(Event::Key(KeyEvent {
+            code, modifiers, ..
+        })) = read()
+        {
+            match (code, modifiers) {
+                (KeyCode::Up, _) => {
                     if cursor_position > 0 {
                         cursor_position -= 1;
                     }
                 }
-                KeyCode::Down | KeyCode::Char('S') => {
+                (KeyCode::Down, _) => {
                     if cursor_position < options.len() - 1 {
                         cursor_position += 1;
                     }
                 }
-                KeyCode::Char(' ') => {
+                (KeyCode::Char(' '), _) => {
                     if selected_indices.contains(&cursor_position) {
                         selected_indices.retain(|&x| x != cursor_position);
                     } else {
                         selected_indices.push(cursor_position);
                     }
                 }
-                KeyCode::Enter => {
+                (KeyCode::Enter, _) => {
                     return selected_indices;
+                }
+                (KeyCode::Char('c'), KeyModifiers::CONTROL) => {
+                    #[cfg(unix)]
+                    {
+                        std::process::exit(0);
+                    }
                 }
                 _ => {}
             }
